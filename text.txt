@@ -1,0 +1,55 @@
+The schema applied cleanly to a scratch Postgres, so I'm now re-running it to check it can be repeated safely, then sending it over.
+
+I've attached `erp_qm_schema.sql`, and the rest of the module is built in the backend but still has no screens in the UI.
+
+## The SQL file
+
+- **What's in it:** the 16 business tables and 14 audit tables (`*_aud`), the Envers revision table and sequence, and the foreign keys, unique constraints, enum check constraints and indexes.
+- **How it was written:** I generated it from your entity classes and ran it on a scratch PostgreSQL 16 database, where it applied without errors.
+- **Not tested against Hibernate:** I couldn't run the real service, so it has not been checked against Hibernate itself. The riskiest part is the revision table and its sequence. I named them `qm_revision_entity` and `qm_revision_entity_seq`. Hibernate could expect different names.
+- **Run it once on an empty database:** `psql -U erp_qm -d erp_qm -f erp_qm_schema.sql`. Re-running it fails on the foreign-key statements.
+- **Keep `ddl-auto: update`** in `application.yml` for the first start. It will fill in anything I got wrong. Setting it to `validate` would make the service refuse to start on a mismatch.
+- **To get Hibernate's exact DDL:** add these properties once, start the service, and compare the generated file with mine:
+
+```yaml
+spring.jpa.properties.jakarta.persistence.schema-generation.scripts.action: create
+spring.jpa.properties.jakarta.persistence.schema-generation.scripts.create-target: qm_ddl.sql
+```
+
+## The rest of the module
+
+The UI so far covers only the equipment list and detail pages, the calibration record dialog, and the schedule list. All the backend endpoints below already exist.
+
+| Screen to build | Requirement | Backend endpoints |
+|---|---|---|
+| Reference standards | CAL-013 | `/api/v1/reference-standards` (list, create, `/{standardId}/retire`) |
+| Repairs, per equipment | CAL-009 | `/equipment/{id}/repairs`, `/repairs/{id}/complete`, `/repairs/{id}/approve-return-to-service` |
+| OOT assessments and quality holds | CAL-010, 011 | `/calibration-records/{id}/oot-assessments`, `/oot-assessments/{id}/disposition`, `/oot-assessments/{id}/quality-holds`, `/quality-holds/{id}/resolve` |
+| Certificates | CAL-012 | `/calibration-records/{id}/certificate`, `/certificates/{id}/verify`, `/certificates/{id}/approve` |
+| External service and approved providers | CAL-014 | `/approved-providers`, `/equipment/{id}/external-service-requests`, `/external-service-requests/{id}/dispatch`, `/certificate`, `/verify`, `/reactivate`, `/cancel` |
+| Labels | CAL-015 | `/equipment/{id}/labels`, `/labels/{id}/issue` |
+| Conditional use | CAL-016 | `/equipment/{id}/conditional-use`, `/conditional-use/{id}/approve`, `/reject`, `/close` |
+| Transfers | CAL-017 | `/equipment/{id}/transfers` |
+| Reports | CAL-019 | `/api/v1/reports/dashboard`, `/overdue`, `/oot`, `/certificates` |
+| Audit history | CAL-020 | `/api/v1/audit/.../revisions` |
+
+Most of these belong as tabs or dialogs on the equipment detail page, since they hang off one piece of equipment. Reference standards, reports and audit history are separate pages with their own menu entries.
+
+## How to add each screen
+
+Every screen is the same four steps, using the files you already have.
+
+1. **Endpoints:** in `src/modules/qm/utils/calibrationConstants.js`, add the paths to `CALIBRATION_ENDPOINTS`, plus any option lists and status colours.
+2. **Screen:** add a file under `src/modules/qm/screens/Calibration/`.
+   - Copy `EquipmentListPage.jsx` for a list page or `CalibrationRecordDialog.jsx` for a form dialog.
+   - Keep `service: 'calibration'` and the `useCalibrationHeaders` headers.
+3. **Route:** in `src/modules/qm/routes/Router.jsx`, add a lazy import and a route like the existing three:
+   ```jsx
+   const ReferenceStandardListPage = lazy(() => import('@modules/qm/screens/Calibration/ReferenceStandardListPage'));
+   <Route path="/calibration/reference-standards" element={<ReferenceStandardListPage />} />
+   ```
+4. **Menu:** only for standalone pages, add an mdms resource and role mapping like you did for the first two. The link is `/web/landing/qms/calibration/reference-standards`. Screens that are tabs on the equipment detail page need no menu entry.
+
+Start with reference standards, because creating a calibration record needs one. Then do certificates and repairs, which complete the main failed-calibration flow.
+
+Do you want me to build the remaining screens, one group at a time, in the same changed-files-only format?
